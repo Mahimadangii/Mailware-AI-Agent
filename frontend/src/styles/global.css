@@ -1,0 +1,97 @@
+/* src/styles/global.css */
+
+/* ─── GOOGLE FONTS ────────────────────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Google+Sans+Display:wght@400;700&family=DM+Mono:wght@400;500&display=swap');
+
+/* ─── RESET ───────────────────────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: 'Google Sans', sans-serif;
+  background: #fff;
+  color: #202124;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  text-decoration: none;
+  color: inherit;
+}
+
+button {
+  font-family: 'Google Sans', sans-serif;
+  cursor: pointer;
+  border: none;
+  background: none;
+}
+
+/* ─── SCROLL REVEAL ───────────────────────────────────────────────────────── */
+.reveal {
+  opacity: 0;
+  transform: translateY(28px);
+  transition: opacity 0.65s ease, transform 0.65s ease;
+}
+
+.reveal.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ─── KEYFRAMES ───────────────────────────────────────────────────────────── */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.3; }
+}
+
+@keyframes ringPulse {
+  0%, 100% { opacity: 0.6; transform: translate(-50%, -50%) scale(1); }
+  50%       { opacity: 1;   transform: translate(-50%, -50%) scale(1.015); }
+}
+
+@keyframes floatMockup {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-8px); }
+}
+
+@keyframes emailFloat {
+  0%   { opacity: 0; transform: translateY(8px); }
+  15%  { opacity: 1; transform: translateY(0); }
+  55%  { opacity: 1; transform: translateY(-4px); }
+  72%  { opacity: 0; transform: translateY(-16px); }
+  100% { opacity: 0; transform: translateY(-16px); }
+}
+
+@keyframes loadBar {
+  0%   { width: 0;    opacity: 1; }
+  70%  { width: 80%;  opacity: 1; }
+  100% { width: 100%; opacity: 0; }
+}
+
+/* ─── UTILITY ─────────────────────────────────────────────────────────────── */
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0,0,0,0);
+  white-space: nowrap;
+  border: 0;
+}
