@@ -1,71 +1,100 @@
 // backend/src/services/aiService.js
+require('dotenv').config();
 
+// 🔥 HACK: Editor ko dhokha dene ke liye URL ko tod diya hai taaki wo auto-link na banaye!
+const API_URL = "https://" + "openrouter.ai" + "/api/v1/chat/completions";
+
+// 1. Tasks nikalne ke liye
 async function extractTasksFromEmails(emails) {
-    if (!emails || emails.length === 0) return [];
-
-    console.log(`🤖 AI Engine Started: Processing ${emails.length} `);
-
-    const openRouterApiKey = process.env.OPENROUTER_API_KEY;
-
-    // AI ko hum strict instruction de rahe hain ki sirf JSON wapas kare
-    const systemPrompt = `
-    You are an intelligent email parser. Read the provided emails and extract actionable tasks.
-    Return ONLY a valid JSON array of objects. Do not include any markdown formatting like \`\`\`json or explanations.
-    Format each object strictly as:
-    {
-      "id": "Use the provided email ID",
-      "title": "String (Short, clear actionable task. If no task found, return an empty string)",
-      "deadline": "String (Extract date/time if mentioned, otherwise null)",
-      "priority": "High, Medium, or Low (Based on urgency words like ASAP, Urgent, etc.)",
-      "sourceEmail": "String (The sender of the email)"
-    }
-    Only extract actual tasks. If an email has no tasks (e.g., promotional or casual chat), ignore it.
-    `;
-
-    // Emails ko ek readable text format mein convert karna AI ke liye
-    const emailTextForAI = emails.map((e, index) => 
-        `Email ${index + 1}:\nID: ${e.id}\nFrom: ${e.from}\nSubject: ${e.subject}\nBody: ${e.snippet}`
-    ).join("\n\n---\n\n");
-
     try {
-        const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        const prompt = `You are an AI assistant. Analyze these unread emails and extract actionable tasks. 
+        Return ONLY a raw JSON array of objects. Do not include markdown code blocks like \`\`\`json.
+        Each object must have: "id" (string), "title" (short task description), "deadline" (string like 'Today', 'Tomorrow', 'Next Week', or ''), "priority" (High, Medium, Low), "sourceEmail" (sender name).
+        Emails data: ${JSON.stringify(emails)}`;
+
+        const response = await fetch(API_URL, {
             method: "POST",
             headers: {
-                "Authorization": `Bearer ${openRouterApiKey}`,
-                "Content-Type": "application/json",
-                // OpenRouter kabhi-kabhi free models ke liye ye do headers maangta hai:
-                "HTTP-Referer": "http://localhost:3000", 
-                "X-Title": "Mailware AI Agent"
+                "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
+                "Content-Type": "application/json"
             },
             body: JSON.stringify({
                 model: "openrouter/free", 
-                messages: [
-                    { role: "system", content: systemPrompt },
-                    { role: "user", content: `Extract tasks from these emails:\n\n${emailTextForAI}` }
-                ]
+                messages: [{ role: "user", content: prompt }]
             })
         });
 
         const data = await response.json();
         
-        // 🔥 NAYA DEBUG LOGGING: Agar output mein 'choices' nahi hai, toh asli error print karo
-        if (!response.ok || !data.choices || !data.choices[0]) {
-            console.error("🔴 OPENROUTER ASLI ERROR:", JSON.stringify(data, null, 2));
-            throw new Error("OpenRouter API request failed");
+        if (data.error) {
+            throw new Error(data.error.message || "OpenRouter API Error");
         }
 
-        const aiOutput = data.choices[0].message.content.trim();
-        const cleanedJsonString = aiOutput.replace(/```json/g, '').replace(/````/g, '');
+        let aiText = data.choices[0].message.content.trim();
+        if (aiText.startsWith("```json")) aiText = aiText.replace(/```json/g, "").replace(/```/g, "").trim();
+        else if (aiText.startsWith("```")) aiText = aiText.replace(/```/g, "").trim();
 
-        const tasks = JSON.parse(cleanedJsonString);
-        
-        console.log("✅ AI ne successfully tasks extract kar liye!");
-        return tasks;
-
+        return JSON.parse(aiText);
     } catch (error) {
-        console.error("❌ AI Parsing Error:", error.message);
-        return []; 
+        console.error("AI Task Extraction Failed:", error.message);
+        return [];
     }
 }
 
-module.exports = { extractTasksFromEmails };
+// 2. Inbox Mails ki 1-line Summary banane ke liye
+async function summarizeEmailSnippets(emails) {
+    try {
+        console.log(`🧠 AI is summarizing ${emails.length} emails...`);
+        
+        const safeEmailsText = emails.map((e, i) => 
+            `[${i}] Subject: ${e.subject} | Text: ${e.snippet.substring(0, 150)}`
+        ).join('\n');
+
+        const prompt = `You are a smart email assistant. Read the following list of email subjects and raw texts.
+        For each email, generate a very short, crisp 1-sentence summary (max 8-10 words) of what the email is actually about.
+        Return the response STRICTLY as a raw JSON array of strings in the exact same order as the input. Do not wrap in markdown blocks.
+        
+        Input Emails:
+        ${safeEmailsText}
+        
+        Output format example: ["Meeting rescheduled to 3 PM.", "Your Amazon order is shipped.", "Client requested a code review."]`;
+
+        const response = await fetch(API_URL, {
+            method: "POST",
+            headers: {
+                "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                model: "openrouter/free",
+                messages: [{ role: "user", content: prompt }]
+            })
+        });
+
+        const data = await response.json();
+
+        if (data.error) {
+            throw new Error(data.error.message || "OpenRouter API Error");
+        }
+
+        let aiText = data.choices[0].message.content.trim();
+        
+        if (aiText.startsWith("```json")) aiText = aiText.replace(/```json/g, "").replace(/```/g, "").trim();
+        else if (aiText.startsWith("```")) aiText = aiText.replace(/```/g, "").trim();
+
+        const summaries = JSON.parse(aiText);
+
+        return emails.map((email, index) => {
+            return {
+                ...email,
+                snippet: summaries[index] ? `✨ ${summaries[index]}` : email.snippet 
+            };
+        });
+
+    } catch (error) {
+        console.error("AI Summarization failed:", error.message);
+        return emails; 
+    }
+}
+
+module.exports = { extractTasksFromEmails, summarizeEmailSnippets };

@@ -1,16 +1,6 @@
 // src/firebase/config.js
-// ─────────────────────────────────────────────────────────────────────────────
-// Firebase Configuration & Setup
-// ─────────────────────────────────────────────────────────────────────────────
-
 import { initializeApp } from "firebase/app";
-import {
-  getAuth,
-  GoogleAuthProvider,
-  signInWithPopup,
-  signOut,
-  onAuthStateChanged,
-} from "firebase/auth";
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "firebase/auth";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBGJGdW4S_gpZfj9FNEUyva7X4tD6q0nl8",
@@ -22,97 +12,105 @@ const firebaseConfig = {
   measurementId: "G-EPWRR52GEB"
 };  
 
-// Initialize Firebase (safe to call multiple times — Firebase deduplicates)
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
-
-// Google provider — always show account picker
 const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: "select_account" });
+googleProvider.addScope('https://www.googleapis.com/auth/gmail.modify'); 
+googleProvider.addScope('https://www.googleapis.com/auth/gmail.send');
 
-// 🔥 Ye Firebase ko bolegi ki Gmail read karne ki permission maango
-googleProvider.addScope('https://www.googleapis.com/auth/gmail.readonly');
-
-// ─── Auth helpers ─────────────────────────────────────────────────────────────
-
-/** Sign in with Google popup. Returns the Firebase User on success. */
 export async function signInWithGoogle() {
   try {
     const result = await signInWithPopup(auth, googleProvider);
-    
-    // Google se Access Token nikalna
     const credential = GoogleAuthProvider.credentialFromResult(result);
     const accessToken = credential.accessToken;
-    
-    console.log("Mil gaya Gmail Access Token! 🚀");
     result.user.gmailAccessToken = accessToken;
-
-    // 🔥 NAYA CODE: Token ko save karna taaki Sync Button use kar sake
     if (accessToken) {
         localStorage.setItem("gmailToken", accessToken);
-        
         try {
-            console.log("Backend ko token bhej rahe hain...");
             const response = await fetch('http://localhost:5000/api/auth/save-token', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ token: accessToken, userEmail: result.user.email })
             });
-
             const data = await response.json();
-            console.log("Backend se Jawab Aaya:", data.message);
-
             if (data.tasks && data.tasks.length > 0) {
-                console.log("✅ Initial Tasks mil gaye! LocalStorage mein save kar rahe hain...");
                 localStorage.setItem("aiTasks", JSON.stringify(data.tasks));
                 window.dispatchEvent(new Event("tasksUpdated")); 
-            } else {
-                console.log("ℹ️ Koi naye tasks nahi mile.");
             }
-        } catch (backendError) {
-            console.error("Backend server error:", backendError);
-        }
+        } catch (error) { console.error("Backend error:", error); }
     }
-
     return result.user;
-  } catch (error) {
-    console.error("Login me error aa gaya:", error);
-    throw error;
-  }
+  } catch (error) { throw error; }
 }
 
-// 🔥 NAYA FUNCTION: Sync Button ke liye Manual Fetch
 export async function syncEmails(userEmail) {
   const token = localStorage.getItem("gmailToken");
-  
-  if (!token) {
-    throw new Error("Session expired. Please sign out and sign in again.");
-  }
-
   const response = await fetch('http://localhost:5000/api/auth/save-token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: token, userEmail: userEmail })
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: token, userEmail: userEmail })
   });
-
-  if (!response.ok) {
-    throw new Error("Backend se connect karne mein issue aaya.");
-  }
-
   const data = await response.json();
-  return data.tasks || []; // Array of raw tasks return karega
+  return data.tasks || []; 
 }
 
-/** Sign out the current user and clear data. */
+export async function fetchInboxData() {
+    const token = localStorage.getItem("gmailToken");
+    const response = await fetch('http://localhost:5000/api/auth/inbox', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: token })
+    });
+    const data = await response.json();
+    return data.emails || []; 
+}
+
+// 🔥 NAYA: Sent Data fetch
+export async function fetchSentData() {
+    const token = localStorage.getItem("gmailToken");
+    const response = await fetch('http://localhost:5000/api/auth/sent', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: token })
+    });
+    const data = await response.json();
+    return data.emails || []; 
+}
+
+export async function fetchFullEmail(messageId) {
+    const token = localStorage.getItem("gmailToken");
+    const response = await fetch('http://localhost:5000/api/auth/email-details', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token, messageId })
+    });
+    const data = await response.json();
+    return data.body; 
+}
+
+export async function trashEmailAPI(messageId) {
+    const token = localStorage.getItem("gmailToken");
+    const response = await fetch('http://localhost:5000/api/auth/action/trash', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token, messageId }) });
+    return response.json();
+}
+
+export async function archiveEmailAPI(messageId) {
+    const token = localStorage.getItem("gmailToken");
+    const response = await fetch('http://localhost:5000/api/auth/action/archive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token, messageId }) });
+    return response.json();
+}
+
+export async function replyToEmailAPI(messageId, replyText) {
+    const token = localStorage.getItem("gmailToken");
+    const response = await fetch('http://localhost:5000/api/auth/action/reply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token, messageId, replyText }) });
+    return response.json();
+}
+
+export async function sendNewEmailAPI(to, subject, bodyText) {
+    const token = localStorage.getItem("gmailToken");
+    const response = await fetch('http://localhost:5000/api/auth/action/send', { 
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token, to, subject, bodyText }) 
+    });
+    return response.json();
+}
+
 export async function signOutUser() {
-  // Logout karte waqt saari purani memory clear kar do
   localStorage.removeItem("aiTasks");
   localStorage.removeItem("mailwareBoardData");
   localStorage.removeItem("gmailToken");
   await signOut(auth);
 }
 
-/** Subscribe to auth state changes. */
-export function subscribeToAuthChanges(callback) {
-  return onAuthStateChanged(auth, callback);
-}
+export function subscribeToAuthChanges(callback) { return onAuthStateChanged(auth, callback); }
