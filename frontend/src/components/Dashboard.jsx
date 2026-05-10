@@ -67,7 +67,14 @@ export function Dashboard({ user }) {
           const newTaskIds = [];
           parsedTasks.forEach((task, index) => {
             const taskId = task.id || `ai-task-${index}`;
-            newTasksObj[taskId] = { id: taskId, title: task.title, deadline: task.deadline, priority: task.priority, source: task.source || task.sourceEmail };
+            newTasksObj[taskId] = { 
+                id: taskId, 
+                originalMessageId: task.id, // 🔥 AI se jo email id aayi hai use save kiya
+                title: task.title, 
+                deadline: task.deadline, 
+                priority: task.priority, 
+                source: task.source || task.sourceEmail 
+            };
             newTaskIds.push(taskId); 
           });
           const freshBoardState = { ...initialData, tasks: newTasksObj, columns: { ...initialData.columns, todo: { ...initialData.columns.todo, taskIds: newTaskIds } } };
@@ -89,7 +96,6 @@ export function Dashboard({ user }) {
       setFullEmailBody("");
       setReplyText("");
       
-      // OPTIONAL: Yahan UI mein local state me read mark kar sakte hain
       if (activeFolder === "inbox" && selectedEmail.isUnread) {
           setInboxEmails(prev => prev.map(e => e.id === selectedEmail.id ? { ...e, isUnread: false } : e));
       }
@@ -110,7 +116,14 @@ export function Dashboard({ user }) {
       fetchedTasks.forEach((task, index) => {
         const taskId = task.id || `ai-task-${Date.now()}-${index}`;
         if (!updatedTasks[taskId]) {
-          updatedTasks[taskId] = { id: taskId, title: task.title, deadline: task.deadline, priority: task.priority, source: task.source || task.sourceEmail };
+          updatedTasks[taskId] = { 
+              id: taskId, 
+              originalMessageId: task.id, // 🔥 Store real email ID
+              title: task.title, 
+              deadline: task.deadline, 
+              priority: task.priority, 
+              source: task.source || task.sourceEmail 
+          };
           newTodoIds.unshift(taskId); 
           newTasksAdded++;
         }
@@ -119,6 +132,9 @@ export function Dashboard({ user }) {
         const newBoardState = { ...boardData, tasks: updatedTasks, columns: { ...boardData.columns, todo: { ...boardData.columns.todo, taskIds: newTodoIds } } };
         setBoardData(newBoardState);
         localStorage.setItem("mailwareBoardData", JSON.stringify(newBoardState));
+        alert(`✅ ${newTasksAdded} Naye tasks load ho gaye!`);
+      } else {
+        alert("ℹ️ Koi naya task nahi mila. (Ya toh inbox khali hai ya koi actionable task nahi mila)");
       }
     } catch (error) { alert("Sync failed."); } 
     finally { setIsSyncing(false); }
@@ -194,6 +210,20 @@ export function Dashboard({ user }) {
         handleRefreshMails(); 
     } catch (error) { alert("Failed to send email"); }
     setIsActionLoading(false);
+  };
+
+  // 🔥 NAYA FUNCTION: Task par click karne par Pura Email kholne ke liye
+  const handleTaskClick = (task) => {
+    // Fake email object banaya jisse backend fetch kar sake
+    setSelectedEmail({
+        id: task.originalMessageId || task.id, 
+        subject: `Task Source: ${task.title}`,
+        from: task.source,
+        date: task.deadline || "Linked to task",
+        snippet: "Opening email linked with this task...",
+        isUnread: false
+    });
+    setIsComposing(false);
   };
 
   const getPriorityColor = (p) => p?.toLowerCase() === 'high' ? '#fce8e8' : p?.toLowerCase() === 'medium' ? '#fef3c7' : '#e6f4ea';
@@ -279,8 +309,6 @@ export function Dashboard({ user }) {
                                     <span style={{ fontSize: "11px", color: email.isUnread ? "#1a73e8" : "#80868b", fontWeight: email.isUnread ? "700" : "500", flexShrink: 0 }}>{email.date.split(' ')[1]} {email.date.split(' ')[2]}</span>
                                 </div>
                                 <div style={{ fontWeight: email.isUnread ? "700" : "500", color: email.isUnread ? "#202124" : "#5f6368", fontSize: "13px", marginBottom: "4px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{email.subject}</div>
-                                
-                                {/* 🔥 YAHAN CSS CHANGE KI HAI: textOverflow aur nowrap hata diya, aur lineHeight badha di */}
                                 <div style={{ color: "#616161", fontSize: "12.5px", lineHeight: "1.5", marginTop: "6px", wordWrap: "break-word" }}>
                                     {email.snippet}
                                 </div>
@@ -322,7 +350,7 @@ export function Dashboard({ user }) {
             ) : selectedEmail ? (
                 <div style={{ padding: "40px", background: "#fff", height: "100%", overflowY: "auto", display: "flex", flexDirection: "column" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px", paddingBottom: "16px", borderBottom: "1px solid #e8eaed" }}>
-                        <button onClick={() => setSelectedEmail(null)} style={{ padding: "8px 16px", background: "#f1f3f4", color: "#3c4043", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "500", display: "flex", alignItems: "center", gap: "8px" }}><span>←</span> Back</button>
+                        <button onClick={() => setSelectedEmail(null)} style={{ padding: "8px 16px", background: "#f1f3f4", color: "#3c4043", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "500", display: "flex", alignItems: "center", gap: "8px" }}><span>←</span> Back to Board</button>
                         <div style={{ display: "flex", gap: "12px" }}>
                             <button onClick={handleArchive} disabled={isActionLoading} style={{ padding: "8px 16px", background: "#fff", color: "#3c4043", border: "1px solid #dadce0", borderRadius: "8px", cursor: isActionLoading ? "not-allowed" : "pointer", fontWeight: "500" }}>📥 Archive</button>
                             <button onClick={handleDelete} disabled={isActionLoading} style={{ padding: "8px 16px", background: "#fff", color: "#d93025", border: "1px solid #fce8e8", borderRadius: "8px", cursor: isActionLoading ? "not-allowed" : "pointer", fontWeight: "500" }}>🗑️ Trash</button>
@@ -355,6 +383,10 @@ export function Dashboard({ user }) {
                         <h2 style={{ fontSize: "1.5rem", fontWeight: 700, color: "#202124", margin: "0 0 8px 0" }}>Your AI Task Board</h2>
                         <div style={{ display: "inline-block", background: "#e8f0fe", color: "#1557b0", padding: "6px 12px", borderRadius: "16px", fontSize: "12px", fontWeight: "500" }}>✦ Automatically extracted from Inbox</div>
                       </div>
+                      
+                      <button onClick={doSync} disabled={isSyncing} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px 20px", background: isSyncing ? "#e8eaed" : "#1a73e8", color: isSyncing ? "#5f6368" : "#fff", fontWeight: "600", fontSize: "13px", border: "none", borderRadius: "8px", cursor: isSyncing ? "not-allowed" : "pointer", boxShadow: "0 1px 3px rgba(0,0,0,0.12)", transition: "background 0.2s" }}>
+                         {isSyncing ? "⏳ Syncing Tasks..." : "🔄 Sync Unread Tasks"}
+                      </button>
                     </div>
 
                     <DragDropContext onDragEnd={onDragEnd}>
@@ -376,7 +408,9 @@ export function Dashboard({ user }) {
                                     {tasks.map((task, index) => (
                                       <Draggable key={task.id} draggableId={task.id} index={index}>
                                         {(provided, snapshot) => (
-                                          <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps} style={{ userSelect: "none", padding: "16px", margin: "0 0 12px 0", backgroundColor: "#fff", color: "#202124", borderRadius: "8px", boxShadow: snapshot.isDragging ? "0 8px 16px rgba(0,0,0,0.15)" : "0 1px 3px rgba(0,0,0,0.1)", border: "1px solid #dadce0", ...provided.draggableProps.style }}>
+                                          <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps} 
+                                          onClick={() => handleTaskClick(task)} // 🔥 YAHAN CLICK HANDLER LAGAYA HAI
+                                          style={{ userSelect: "none", padding: "16px", margin: "0 0 12px 0", backgroundColor: "#fff", color: "#202124", borderRadius: "8px", boxShadow: snapshot.isDragging ? "0 8px 16px rgba(0,0,0,0.15)" : "0 1px 3px rgba(0,0,0,0.1)", border: "1px solid #dadce0", cursor: "pointer", ...provided.draggableProps.style }}>
                                             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
                                               <span style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", padding: "4px 8px", borderRadius: "4px", background: getPriorityColor(task.priority), color: getPriorityTextColor(task.priority) }}>{task.priority || "Low"}</span>
                                             </div>
@@ -385,6 +419,8 @@ export function Dashboard({ user }) {
                                               {task.deadline && <div>🕒 {task.deadline}</div>}
                                               {task.source && <div style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>👤 {task.source}</div>}
                                             </div>
+                                            {/* 🔥 Visual indicator ki card clickable hai */}
+                                            <div style={{ marginTop: "12px", fontSize: "11px", color: "#1a73e8", fontWeight: "500", textAlign: "right" }}>Open Original Email ↗</div>
                                           </div>
                                         )}
                                       </Draggable>
