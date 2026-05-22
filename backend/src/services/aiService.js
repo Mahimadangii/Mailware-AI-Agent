@@ -1,121 +1,112 @@
-// backend/src/services/aiService.js
 require('dotenv').config();
+const fs = require('fs');
+const path = require('path');
+const CACHE_FILE = path.join(__dirname, 'cache.json');
+const API_URL = "https://openrouter.ai/api/v1/chat/completions";
 
-// HACK: Prevent markdown auto-linking in editors
-const API_URL = "https://" + "openrouter.ai" + "/api/v1/chat/completions";
-
-// Caching storage
-const summaryCache = {}; 
+let summaryCache = fs.existsSync(CACHE_FILE) ? JSON.parse(fs.readFileSync(CACHE_FILE)) : {};
 const processedTaskEmails = new Set(); 
 
-// 1. Strict AI Task Extraction (With Cache)
+function saveCache() { fs.writeFileSync(CACHE_FILE, JSON.stringify(summaryCache)); }
+
+function safelyParseJSON(text) {
+    if (!text) return null;
+    const match = text.match(/\[.*\]/s); // Regex to find array brackets
+    if (!match) {
+        console.log("❌ Regex failed to find a JSON array in AI response.");
+        return null;
+    }
+    try { 
+        return JSON.parse(match[0]); 
+    } catch (e) { 
+        console.log("❌ JSON.parse failed! Corrupted JSON:", match[0]);
+        return null; 
+    }
+}
+
 async function extractTasksFromEmails(emails) {
     try {
+        // 🔥 DEBUG LOG 1: Check how many emails are actually going to AI
         const freshEmails = emails.filter(e => !processedTaskEmails.has(e.id));
-        if (freshEmails.length === 0) return [];
-
-        console.log(`🧠 AI is extracting tasks from ${freshEmails.length} NEW emails...`);
-
-        const prompt = `You are an elite AI Task Manager. Your job is to extract GENUINE, ACTIONABLE tasks from the following unread emails.
-        CRITICAL STRICT RULES:
-        1. DO NOT create tasks for informational emails, security alerts, newsletters, welcome emails, or promotions.
-        2. ONLY create a task if the email explicitly requires the user to take a specific action.
-        3. If an email does not contain a clear, actionable task, COMPLETELY IGNORE IT. 
-        4. If NONE of the emails contain valid tasks, you MUST return an empty array: []
-
-        Return ONLY a raw JSON array of objects. Do not include markdown code blocks like \`\`\`json.
-        Each object must have: "id" (string), "title" (short task description), "deadline" (string like 'Today', 'Tomorrow', 'Next Week', or 'No Deadline'), "priority" (High, Medium, Low), "sourceEmail" (sender name).
+        console.log(`\n📥 Inbox sent ${emails.length} emails. Fresh emails to process: ${freshEmails.length}`);
         
-        Emails data: ${JSON.stringify(freshEmails)}`;
+        if (freshEmails.length === 0) {
+            console.log("⚠️ No fresh emails to process. All emails are already in cache.");
+            return [];
+        }
+
+        const prompt = `You are an expert AI Task Manager. Analyze the provided emails and extract ONLY actionable tasks.
+
+        STRICT RULES:
+         1. DO NOT create tasks for newsletters, social media notifications (like Pinterest/Snapchat), or general marketing emails.
+         2. ONLY create tasks for emails that explicitly ask the user to DO something (e.g., "Submit assignment", "Complete assessment", "Apply before deadline").
+         3. If an email is just an update or a notification, IGNORE IT.
+         4. Return ONLY a valid JSON array of objects with EXACTLY these keys: 
+         [
+           {
+             "id": "...", 
+             "title": "...", 
+             "actionItem": "Short 1-line description of what needs to be done",
+             "deadline": "Exact date if mentioned, otherwise 'No Deadline'", 
+             "priority": "High/Medium/Low", 
+             "senderName": "Name of the sender",
+             "sourceEmail": "..."
+           }
+         ]
+         5. CRITICAL: Do NOT add markdown blocks (like \`\`\`json). Return ONLY the raw JSON array. Do not add any conversational text.
+
+         Emails data: ${JSON.stringify(freshEmails)}`;
 
         const response = await fetch(API_URL, {
             method: "POST",
-            headers: {
-                "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
-                "Content-Type": "application/json"
-            },
+            headers: { "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
             body: JSON.stringify({ model: "openrouter/free", messages: [{ role: "user", content: prompt }] })
         });
 
         const data = await response.json();
-        if (data.error) throw new Error(data.error.message || "OpenRouter API Error");
+        const rawContent = data?.choices?.[0]?.message?.content;
+        
+        // 🔥 DEBUG LOG 2: See EXACTLY what AI replied before parsing
+        console.log("\n🤖 RAW AI RESPONSE:\n", rawContent);
 
-        let aiText = data.choices[0].message.content.trim();
-        if (aiText.startsWith("```json")) aiText = aiText.replace(/```json/g, "").replace(/```/g, "").trim();
-        else if (aiText.startsWith("```")) aiText = aiText.replace(/```/g, "").trim();
+        const tasks = safelyParseJSON(rawContent);
+        
+        // 🔥 FIX: Only add to processed cache if parsing was successful
+        if (tasks && Array.isArray(tasks)) {
+            console.log(`✅ Successfully extracted ${tasks.length} tasks.`);
+            freshEmails.forEach(e => processedTaskEmails.add(e.id));
+            return tasks;
+        } else {
+            console.log("⚠️ Failed to extract tasks properly. Not adding to cache so we can retry.");
+            return [];
+        }
 
-        const tasks = JSON.parse(aiText);
-        freshEmails.forEach(e => processedTaskEmails.add(e.id));
-        return tasks;
-    } catch (error) {
-        console.error("AI Task Extraction Failed:", error.message);
-        return [];
+    } catch (e) { 
+        console.error("🔥 AI Task Extraction Crash:", e);
+        return []; 
     }
 }
 
-// 2. Strict Inbox Mails Summarization (With Cache)
 async function summarizeEmailSnippets(emails) {
-    try {
-        const unsummarizedEmails = emails.filter(e => !summaryCache[e.id]);
+    const unsummarized = emails.filter(e => !summaryCache[e.id]);
+    if (unsummarized.length > 0) {
+        const prompt = `Summarize these ${unsummarized.length} emails. Return a raw JSON array of ${unsummarized.length} strings. No text, just the array.
+        Emails: ${JSON.stringify(unsummarized.map(e => ({id: e.id, sub: e.subject, body: e.snippet.substring(0,100)})))}`;
 
-        if (unsummarizedEmails.length > 0) {
-            console.log(`🧠 AI is summarizing ${unsummarizedEmails.length} NEW emails...`);
-            
-            const safeEmailsText = unsummarizedEmails.map((e, i) => 
-                `[${i}] Subject: ${e.subject} | Text: ${e.snippet.substring(0, 150)}`
-            ).join('\n');
+        const response = await fetch(API_URL, {
+            method: "POST",
+            headers: { "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ model: "openrouter/free", messages: [{ role: "user", content: prompt }] })
+        });
 
-            // 🔥 STRICT PROMPT HERE
-            const prompt = `You are a smart email assistant. Read the following list of EXACTLY ${unsummarizedEmails.length} email subjects and raw texts.
-            For EACH email, generate a very short, crisp 1-sentence summary (max 8-10 words).
-            
-            CRITICAL RULES:
-            1. You MUST return STRICTLY a JSON array of strings.
-            2. The JSON array MUST contain EXACTLY ${unsummarizedEmails.length} items.
-            3. Do NOT include any intro text, markdown formatting (\`\`\`json), or explanations. Just the raw array.
-            4. If an email is gibberish or a security alert, summarize it as "Account security notification." or "System automated message."
-            
-            Input Emails:
-            ${safeEmailsText}`;
-
-            const response = await fetch(API_URL, {
-                method: "POST",
-                headers: {
-                    "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({ model: "openrouter/free", messages: [{ role: "user", content: prompt }] })
-            });
-
-            const data = await response.json();
-            if (data.error) throw new Error(data.error.message || "OpenRouter API Error");
-
-            let aiText = data.choices[0].message.content.trim();
-            if (aiText.startsWith("```json")) aiText = aiText.replace(/```json/g, "").replace(/```/g, "").trim();
-            else if (aiText.startsWith("```")) aiText = aiText.replace(/```/g, "").trim();
-
-            const newSummaries = JSON.parse(aiText);
-
-            unsummarizedEmails.forEach((email, index) => {
-                if (newSummaries[index]) {
-                    summaryCache[email.id] = `✨ ${newSummaries[index]}`;
-                }
-            });
+        const data = await response.json();
+        const summaries = safelyParseJSON(data?.choices?.[0]?.message?.content);
+        if (summaries) {
+            unsummarized.forEach((e, i) => { summaryCache[e.id] = `✨ ${summaries[i]}`; });
+            saveCache();
         }
-
-        // Return mixed (from cache + fresh)
-        return emails.map(email => ({
-            ...email,
-            snippet: summaryCache[email.id] || email.snippet 
-        }));
-
-    } catch (error) {
-        console.error("AI Summarization failed:", error.message);
-        return emails.map(email => ({
-            ...email,
-            snippet: summaryCache[email.id] || email.snippet 
-        }));
     }
+    return emails.map(e => ({ ...e, snippet: summaryCache[e.id] || e.snippet }));
 }
 
 module.exports = { extractTasksFromEmails, summarizeEmailSnippets };

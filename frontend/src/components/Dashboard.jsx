@@ -21,7 +21,6 @@ export function Dashboard({ user }) {
   
   const [activeFolder, setActiveFolder] = useState("inbox"); 
   
-  // 🔥 UPDATED STATES: Arrays ke sath Tokens aur Loading states
   const [inboxEmails, setInboxEmails] = useState([]);
   const [inboxNextPage, setInboxNextPage] = useState(null);
   
@@ -29,7 +28,7 @@ export function Dashboard({ user }) {
   const [sentNextPage, setSentNextPage] = useState(null);
   
   const [loadingMails, setLoadingMails] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false); // Load more dabane par indicator
+  const [loadingMore, setLoadingMore] = useState(false); 
   
   const [selectedEmail, setSelectedEmail] = useState(null);
   const [fullEmailBody, setFullEmailBody] = useState(""); 
@@ -41,6 +40,8 @@ export function Dashboard({ user }) {
 
   const [isComposing, setIsComposing] = useState(false);
   const [composeData, setComposeData] = useState({ to: '', subject: '', body: '' });
+  // Baki states ke sath isko add karo
+  const [taskFilter, setTaskFilter] = useState("all");
 
   const handleSignOut = async () => {
     setSigningOut(true);
@@ -60,7 +61,6 @@ export function Dashboard({ user }) {
     finally { setLoadingMails(false); }
   };
 
-  // 🔥 NAYA FUNCTION: Naye 20 mails append karne ke liye
   const handleLoadMore = async () => {
       setLoadingMore(true);
       try {
@@ -94,7 +94,17 @@ export function Dashboard({ user }) {
           const newTaskIds = [];
           parsedTasks.forEach((task, index) => {
             const taskId = task.id || `ai-task-${index}`;
-            newTasksObj[taskId] = { id: taskId, originalMessageId: task.id, title: task.title, deadline: task.deadline, priority: task.priority, source: task.source || task.sourceEmail };
+            // 🔥 NAYA: Added actionItem and senderName
+            newTasksObj[taskId] = { 
+              id: taskId, 
+              originalMessageId: task.id, 
+              title: task.title || "No Title", 
+              actionItem: task.actionItem || "Review email for further details.",
+              deadline: task.deadline || "No Deadline", 
+              priority: task.priority || "Low", 
+              senderName: task.senderName || task.source || task.sourceEmail || "Unknown Sender",
+              createdAt: task.createdAt || Date.now() // 🔥 NAYA: Timestamp add kiya
+            };
             newTaskIds.push(taskId); 
           });
           const freshBoardState = { ...initialData, tasks: newTasksObj, columns: { ...initialData.columns, todo: { ...initialData.columns.todo, taskIds: newTaskIds } } };
@@ -130,49 +140,75 @@ export function Dashboard({ user }) {
     setIsSyncing(true);
     try {
       const fetchedTasks = await syncEmails(user.email);
-      let newTasksAdded = 0;
-      const updatedTasks = { ...boardData.tasks };
-      const newTodoIds = [...boardData.columns.todo.taskIds];
-      fetchedTasks.forEach((task, index) => {
-        const taskId = task.id || `ai-task-${Date.now()}-${index}`;
-        if (!updatedTasks[taskId]) {
-          updatedTasks[taskId] = { id: taskId, originalMessageId: task.id, title: task.title, deadline: task.deadline, priority: task.priority, source: task.source || task.sourceEmail };
-          newTodoIds.unshift(taskId); 
-          newTasksAdded++;
-        }
+      
+      const newTasksObj = {};
+      const newTaskIds = [];
+      // 🔥 DEBUG LOG: Console mein dekho kya aaya!
+      console.log("🚀 Fetched Tasks from Backend:", fetchedTasks);
+      
+      fetchedTasks.forEach((t, i) => {
+        const id = `task-${Date.now()}-${i}`;
+        // 🔥 NAYA: Added actionItem and senderName
+        newTasksObj[id] = { 
+          id, 
+          title: t.title || "No Title", 
+          actionItem: t.actionItem || "Check email for task details.",
+          deadline: t.deadline || "No Deadline", 
+          priority: t.priority || "Low", 
+          senderName: t.senderName || t.sourceEmail || "Unknown Sender",
+          createdAt: t.createdAt || Date.now() // 🔥 NAYA: Timestamp add kiya
+        };
+        newTaskIds.push(id);
       });
-      if (newTasksAdded > 0) {
-        const newBoardState = { ...boardData, tasks: updatedTasks, columns: { ...boardData.columns, todo: { ...boardData.columns.todo, taskIds: newTodoIds } } };
-        setBoardData(newBoardState);
-        localStorage.setItem("mailwareBoardData", JSON.stringify(newBoardState));
-        alert(`✅ ${newTasksAdded} Naye tasks load ho gaye!`);
-      } else {
-        alert("ℹ️ Koi naya task nahi mila.");
-      }
-    } catch (error) { alert("Sync failed."); } 
-    finally { setIsSyncing(false); }
-  };
 
+      const newState = { 
+        ...initialData, 
+        tasks: newTasksObj, 
+        columns: { ...initialData.columns, todo: { ...initialData.columns.todo, taskIds: newTaskIds } } 
+      };
+      
+      setBoardData(newState);
+      localStorage.setItem("mailwareBoardData", JSON.stringify(newState));
+      alert("Board Updated!");
+    } catch (e) { alert("Sync failed"); }
+    setIsSyncing(false);
+  };
+  
   const onDragEnd = (result) => {
     const { destination, source, draggableId } = result;
     if (!destination) return;
     if (destination.droppableId === source.droppableId && destination.index === source.index) return;
+    
     const startCol = boardData.columns[source.droppableId];
     const finishCol = boardData.columns[destination.droppableId];
+
+    // 🔥 FIX: Find actual index if list is currently filtered
+    let actualSourceIndex = source.index;
+    if (source.droppableId === "todo" && taskFilter !== "all") {
+      actualSourceIndex = startCol.taskIds.indexOf(draggableId);
+    }
+
     let newBoardState;
     if (startCol === finishCol) {
+      // Agar list filtered hai toh same column mein re-order allow mat karo
+      if (taskFilter !== "all") {
+          alert("Please set the filter to 'All' to reorder tasks in To Do.");
+          return;
+      }
       const newTaskIds = Array.from(startCol.taskIds);
-      newTaskIds.splice(source.index, 1);
+      newTaskIds.splice(actualSourceIndex, 1);
       newTaskIds.splice(destination.index, 0, draggableId);
       const newCol = { ...startCol, taskIds: newTaskIds };
       newBoardState = { ...boardData, columns: { ...boardData.columns, [newCol.id]: newCol } };
     } else {
       const startTaskIds = Array.from(startCol.taskIds);
-      startTaskIds.splice(source.index, 1);
+      startTaskIds.splice(actualSourceIndex, 1);
       const newStart = { ...startCol, taskIds: startTaskIds };
+      
       const finishTaskIds = Array.from(finishCol.taskIds);
       finishTaskIds.splice(destination.index, 0, draggableId);
       const newFinish = { ...finishCol, taskIds: finishTaskIds };
+      
       newBoardState = { ...boardData, columns: { ...boardData.columns, [newStart.id]: newStart, [newFinish.id]: newFinish } };
     }
     setBoardData(newBoardState);
@@ -207,6 +243,7 @@ export function Dashboard({ user }) {
           await replyToEmailAPI(selectedEmail.id, replyText);
           setReplyText("");
           alert("✅ Reply Sent Successfully!");
+          handleRefreshMails(); 
       } catch (error) { alert("Failed to send reply"); }
       setIsSendingReply(false);
   };
@@ -228,12 +265,35 @@ export function Dashboard({ user }) {
     setSelectedEmail({
         id: task.originalMessageId || task.id, 
         subject: `Task Source: ${task.title}`,
-        from: task.source,
+        from: task.senderName || task.source,
         date: task.deadline || "Linked to task",
         snippet: "Opening email linked with this task...",
         isUnread: false
     });
     setIsComposing(false);
+  };
+
+  const handleDeleteTask = (taskId, e) => {
+      e.stopPropagation(); 
+      
+      const newTasks = { ...boardData.tasks };
+      delete newTasks[taskId];
+
+      const newColumns = { ...boardData.columns };
+      for (const colId in newColumns) {
+          newColumns[colId] = {
+              ...newColumns[colId],
+              taskIds: newColumns[colId].taskIds.filter(id => id !== taskId)
+          };
+      }
+
+      const newBoardState = { ...boardData, tasks: newTasks, columns: newColumns };
+      setBoardData(newBoardState);
+      localStorage.setItem("mailwareBoardData", JSON.stringify(newBoardState));
+      
+      const savedTasks = JSON.parse(localStorage.getItem("aiTasks") || "[]");
+      const updatedTasks = savedTasks.filter(t => (t.id || t.originalMessageId) !== taskId);
+      localStorage.setItem("aiTasks", JSON.stringify(updatedTasks));
   };
 
   const getPriorityColor = (p) => p?.toLowerCase() === 'high' ? '#fce8e8' : p?.toLowerCase() === 'medium' ? '#fef3c7' : '#e6f4ea';
@@ -245,6 +305,7 @@ export function Dashboard({ user }) {
   return (
     <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: "#f8f9fa", fontFamily: "'Google Sans', sans-serif" }}>
       
+      {/* TOP NAV */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 24px", background: "#fff", borderBottom: "1px solid #e8eaed", zIndex: 10 }}>
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
           <BrandMark size={32} color="#1a73e8" radius={8} />
@@ -260,34 +321,20 @@ export function Dashboard({ user }) {
 
       <div style={{ display: "flex", flexGrow: 1, overflow: "hidden", width: "100%" }}>
         
-        {/* ─── LEFT PANE: MAILS LIST ─── */}
+        {/* LEFT PANE */}
         <div style={{ width: "380px", minWidth: "380px", maxWidth: "380px", flexShrink: 0, background: "#fff", borderRight: "1px solid #e8eaed", display: "flex", flexDirection: "column", zIndex: 5 }}>
-            
             <div style={{ padding: "16px", borderBottom: "1px solid #e8eaed", background: "#fff" }}>
-                 <button 
-                    onClick={() => { setIsComposing(true); setSelectedEmail(null); }}
-                    style={{ width: "100%", padding: "12px", background: "#c2e7ff", color: "#001d35", border: "none", borderRadius: "16px", fontWeight: "600", fontSize: "14px", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", cursor: "pointer", transition: "background 0.2s" }}
-                 >
+                 <button onClick={() => { setIsComposing(true); setSelectedEmail(null); }} style={{ width: "100%", padding: "12px", background: "#c2e7ff", color: "#001d35", border: "none", borderRadius: "16px", fontWeight: "600", fontSize: "14px", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", cursor: "pointer", transition: "background 0.2s" }}>
                     <span>✏️</span> Compose New Mail
                  </button>
             </div>
 
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 16px", borderBottom: "1px solid #e8eaed", background: "#fbfbfb" }}>
                 <div style={{ display: "flex", gap: "8px" }}>
-                    <button 
-                        onClick={() => { setActiveFolder("inbox"); setSelectedEmail(null); }}
-                        style={{ padding: "6px 12px", border: "none", background: activeFolder === "inbox" ? "#e8eaed" : "transparent", borderRadius: "16px", fontWeight: "600", color: activeFolder === "inbox" ? "#202124" : "#5f6368", cursor: "pointer", fontSize: "13px" }}>
-                        📥 Inbox
-                    </button>
-                    <button 
-                        onClick={() => { setActiveFolder("sent"); setSelectedEmail(null); }}
-                        style={{ padding: "6px 12px", border: "none", background: activeFolder === "sent" ? "#e8eaed" : "transparent", borderRadius: "16px", fontWeight: "600", color: activeFolder === "sent" ? "#202124" : "#5f6368", cursor: "pointer", fontSize: "13px" }}>
-                        📤 Sent
-                    </button>
+                    <button onClick={() => { setActiveFolder("inbox"); setSelectedEmail(null); }} style={{ padding: "6px 12px", border: "none", background: activeFolder === "inbox" ? "#e8eaed" : "transparent", borderRadius: "16px", fontWeight: "600", color: activeFolder === "inbox" ? "#202124" : "#5f6368", cursor: "pointer", fontSize: "13px" }}>📥 Inbox</button>
+                    <button onClick={() => { setActiveFolder("sent"); setSelectedEmail(null); }} style={{ padding: "6px 12px", border: "none", background: activeFolder === "sent" ? "#e8eaed" : "transparent", borderRadius: "16px", fontWeight: "600", color: activeFolder === "sent" ? "#202124" : "#5f6368", cursor: "pointer", fontSize: "13px" }}>📤 Sent</button>
                 </div>
-                <button onClick={handleRefreshMails} disabled={loadingMails} style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: "16px", padding: "4px" }} title="Refresh Mails">
-                    {loadingMails ? "⏳" : "🔄"}
-                </button>
+                <button onClick={handleRefreshMails} disabled={loadingMails} style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: "16px", padding: "4px" }} title="Refresh Mails">{loadingMails ? "⏳" : "🔄"}</button>
             </div>
             
             <div style={{ flexGrow: 1, overflowY: "auto", overflowX: "hidden" }}>
@@ -298,19 +345,11 @@ export function Dashboard({ user }) {
                 ) : (
                     <>
                         {currentListToDisplay.map((email, i) => (
-                            <div key={i} onClick={() => setSelectedEmail(email)}
-                                style={{ 
-                                    padding: "16px 20px", borderBottom: "1px solid #f1f3f4", cursor: "pointer",
-                                    background: selectedEmail?.id === email.id ? "#e8f0fe" : (email.isUnread ? "#fff" : "#fafafa"),
-                                    borderLeft: selectedEmail?.id === email.id ? "4px solid #1a73e8" : "4px solid transparent",
-                                    transition: "background 0.2s", display: "flex", gap: "10px", alignItems: "flex-start" 
-                                }}>
+                            <div key={i} onClick={() => setSelectedEmail(email)} style={{ padding: "16px 20px", borderBottom: "1px solid #f1f3f4", cursor: "pointer", background: selectedEmail?.id === email.id ? "#e8f0fe" : (email.isUnread ? "#fff" : "#fafafa"), borderLeft: selectedEmail?.id === email.id ? "4px solid #1a73e8" : "4px solid transparent", transition: "background 0.2s", display: "flex", gap: "10px", alignItems: "flex-start" }}>
                                 <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: email.isUnread ? "#1a73e8" : "transparent", marginTop: "6px", flexShrink: 0 }}></div>
                                 <div style={{ flexGrow: 1, overflow: "hidden" }}>
                                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
-                                        <span style={{ fontWeight: email.isUnread ? "700" : "500", color: email.isUnread ? "#202124" : "#5f6368", fontSize: "14px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "180px" }}>
-                                            {activeFolder === "inbox" ? email.from : `To: ${email.to}`}
-                                        </span>
+                                        <span style={{ fontWeight: email.isUnread ? "700" : "500", color: email.isUnread ? "#202124" : "#5f6368", fontSize: "14px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "180px" }}>{activeFolder === "inbox" ? email.from : `To: ${email.to}`}</span>
                                         <span style={{ fontSize: "11px", color: email.isUnread ? "#1a73e8" : "#80868b", fontWeight: email.isUnread ? "700" : "500", flexShrink: 0 }}>{email.date.split(' ')[1]} {email.date.split(' ')[2]}</span>
                                     </div>
                                     <div style={{ fontWeight: email.isUnread ? "700" : "500", color: email.isUnread ? "#202124" : "#5f6368", fontSize: "13px", marginBottom: "4px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{email.subject}</div>
@@ -318,17 +357,9 @@ export function Dashboard({ user }) {
                                 </div>
                             </div>
                         ))}
-                        
-                        {/* 🔥 NAYA: LOAD MORE BUTTON */}
                         {currentNextPageToken && (
                             <div style={{ padding: "16px", textAlign: "center" }}>
-                                <button 
-                                    onClick={handleLoadMore} 
-                                    disabled={loadingMore}
-                                    style={{ padding: "8px 24px", background: "#f1f3f4", color: "#1a73e8", border: "1px solid #dadce0", borderRadius: "20px", cursor: loadingMore ? "wait" : "pointer", fontWeight: "600", fontSize: "13px", transition: "all 0.2s" }}
-                                >
-                                    {loadingMore ? "Loading..." : "Load More Emails 👇"}
-                                </button>
+                                <button onClick={handleLoadMore} disabled={loadingMore} style={{ padding: "8px 24px", background: "#f1f3f4", color: "#1a73e8", border: "1px solid #dadce0", borderRadius: "20px", cursor: loadingMore ? "wait" : "pointer", fontWeight: "600", fontSize: "13px", transition: "all 0.2s" }}>{loadingMore ? "Loading..." : "Load More Emails 👇"}</button>
                             </div>
                         )}
                     </>
@@ -336,7 +367,7 @@ export function Dashboard({ user }) {
             </div>
         </div>
 
-        {/* ─── RIGHT PANE: DYNAMIC (COMPOSE, READ VIEW or KANBAN BOARD) ─── */}
+        {/* RIGHT PANE: DYNAMIC */}
         <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", background: "#f6f8fc", overflow: "hidden" }}>
             
             {isComposing ? (
@@ -401,25 +432,61 @@ export function Dashboard({ user }) {
                         <div style={{ display: "inline-block", background: "#e8f0fe", color: "#1557b0", padding: "6px 12px", borderRadius: "16px", fontSize: "12px", fontWeight: "500" }}>✦ Automatically extracted from Inbox</div>
                       </div>
                       
-                      <button onClick={doSync} disabled={isSyncing} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px 20px", background: isSyncing ? "#e8eaed" : "#1a73e8", color: isSyncing ? "#5f6368" : "#fff", fontWeight: "600", fontSize: "13px", border: "none", borderRadius: "8px", cursor: isSyncing ? "not-allowed" : "pointer", boxShadow: "0 1px 3px rgba(0,0,0,0.12)", transition: "background 0.2s" }}>
-                         {isSyncing ? "⏳ Syncing Tasks..." : "🔄 Sync Unread Tasks"}
-                      </button>
+                      <div style={{ display: "flex", gap: "12px" }}>
+                          <button onClick={() => { if(window.confirm("Clear all tasks?")) { localStorage.removeItem("mailwareBoardData"); localStorage.removeItem("aiTasks"); window.location.reload(); } }} style={{ padding: "10px 16px", background: "#fff", color: "#d93025", border: "1px solid #fce8e8", borderRadius: "8px", cursor: "pointer", fontWeight: "600", fontSize: "13px", transition: "background 0.2s" }}>🗑️ Clear Board</button>
+                          <button onClick={doSync} disabled={isSyncing} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px 20px", background: isSyncing ? "#e8eaed" : "#1a73e8", color: isSyncing ? "#5f6368" : "#fff", fontWeight: "600", fontSize: "13px", border: "none", borderRadius: "8px", cursor: isSyncing ? "not-allowed" : "pointer", boxShadow: "0 1px 3px rgba(0,0,0,0.12)", transition: "background 0.2s" }}>{isSyncing ? "⏳ Syncing..." : "🔄 Sync Tasks"}</button>
+                      </div>
                     </div>
 
                     <DragDropContext onDragEnd={onDragEnd}>
                       <div style={{ display: "flex", gap: "24px", padding: "16px 32px 32px 32px", overflowX: "auto", flexGrow: 1, alignItems: "flex-start" }}>
-                        {boardData.columnOrder.map((columnId) => {
-                          const column = boardData.columns[columnId];
-                          const tasks = column.taskIds.map((taskId) => boardData.tasks[taskId]);
+                      {boardData.columnOrder.map((columnId) => {
+  const column = boardData.columns[columnId];
+  let tasks = column.taskIds.map((taskId) => boardData.tasks[taskId]);
 
-                          return (
-                            <div key={column.id} style={{ background: "#e4e8ec", borderRadius: "12px", width: "320px", flexShrink: 0, display: "flex", flexDirection: "column", maxHeight: "100%" }}>
-                              <div style={{ padding: "16px", fontWeight: "600", color: "#3c4043", display: "flex", justifyContent: "space-between" }}>
-                                {column.title}
-                                <span style={{ background: "#d1d6dc", padding: "2px 8px", borderRadius: "12px", fontSize: "12px", color:"#3c4043" }}>{tasks.length}</span>
-                              </div>
+  // 🔥 NAYA: Filtering Logic sirf 'To Do' column ke liye
+  if (column.id === "todo" && taskFilter !== "all") {
+    const now = Date.now();
+    const ONE_DAY = 24 * 60 * 60 * 1000;
+    
+    tasks = tasks.filter(task => {
+      if (!task.createdAt) return true; // Fallback purane tasks ke liye
+      const diff = now - task.createdAt;
+      
+      if (taskFilter === "today") return diff <= ONE_DAY;
+      if (taskFilter === "7days") return diff <= 7 * ONE_DAY;
+      if (taskFilter === "14days") return diff <= 14 * ONE_DAY;
+      return true;
+    });
+  }
 
-                              <Droppable droppableId={column.id}>
+  return (
+    <div key={column.id} style={{ background: "#e4e8ec", borderRadius: "12px", width: "320px", flexShrink: 0, display: "flex", flexDirection: "column", maxHeight: "100%" }}>
+      
+      {/* 🔥 NAYA: Column Header with Dropdown Filter */}
+      <div style={{ padding: "16px", fontWeight: "600", color: "#3c4043", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          {column.title}
+          <span style={{ background: "#d1d6dc", padding: "2px 8px", borderRadius: "12px", fontSize: "12px", color:"#3c4043" }}>{tasks.length}</span>
+        </div>
+        
+        {/* Sirf To-Do list mein dropdown dikhega */}
+        {column.id === "todo" && (
+          <select 
+            value={taskFilter} 
+            onChange={(e) => setTaskFilter(e.target.value)}
+            style={{ fontSize: "11px", padding: "4px", borderRadius: "6px", border: "1px solid #dadce0", background: "#fff", cursor: "pointer", outline: "none", color: "#5f6368" }}
+          >
+            <option value="all">All</option>
+            <option value="today">Today</option>
+            <option value="7days">Last 7 Days</option>
+            <option value="14days">Last 14 Days</option>
+          </select>
+        )}
+      </div>
+
+      <Droppable droppableId={column.id}>
+      
                                 {(provided, snapshot) => (
                                   <div ref={provided.innerRef} {...provided.droppableProps} style={{ padding: "0 16px 16px 16px", flexGrow: 1, overflowY: "auto", minHeight: "150px", transition: "background 0.2s ease", borderRadius: "0 0 12px 12px", background: snapshot.isDraggingOver ? "#d3e3fd" : "transparent" }}>
                                     {tasks.map((task, index) => (
@@ -427,16 +494,53 @@ export function Dashboard({ user }) {
                                         {(provided, snapshot) => (
                                           <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps} 
                                           onClick={() => handleTaskClick(task)}
-                                          style={{ userSelect: "none", padding: "16px", margin: "0 0 12px 0", backgroundColor: "#fff", color: "#202124", borderRadius: "8px", boxShadow: snapshot.isDragging ? "0 8px 16px rgba(0,0,0,0.15)" : "0 1px 3px rgba(0,0,0,0.1)", border: "1px solid #dadce0", cursor: "pointer", ...provided.draggableProps.style }}>
+                                          style={{ userSelect: "none", padding: "16px", margin: "0 0 12px 0", backgroundColor: "#fff", color: "#202124", borderRadius: "8px", boxShadow: snapshot.isDragging ? "0 8px 16px rgba(0,0,0,0.15)" : "0 1px 3px rgba(0,0,0,0.1)", border: "1px solid #dadce0", cursor: "pointer", position: "relative", ...provided.draggableProps.style }}>
+                                            
+                                            {/* 🔥 NAYA: Cross (Delete) Button on Task */}
+                                            <div 
+                                                onClick={(e) => handleDeleteTask(task.id, e)} 
+                                                style={{ position: "absolute", top: "12px", right: "12px", background: "#f1f3f4", color: "#5f6368", borderRadius: "50%", width: "24px", height: "24px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px", cursor: "pointer", transition: "background 0.2s" }}
+                                                title="Remove Task"
+                                            >
+                                                ✖
+                                            </div>
+
+                                            {/* Priority Badge */}
                                             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
-                                              <span style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", padding: "4px 8px", borderRadius: "4px", background: getPriorityColor(task.priority), color: getPriorityTextColor(task.priority) }}>{task.priority || "Low"}</span>
+                                                <span style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", padding: "4px 8px", borderRadius: "4px", background: getPriorityColor(task.priority), color: getPriorityTextColor(task.priority) }}>
+                                                    {task.priority || "Low"}
+                                                </span>
                                             </div>
-                                            <div style={{ fontSize: "14px", fontWeight: "600", lineHeight: "1.4", marginBottom: "12px" }}>{task.title}</div>
-                                            <div style={{ fontSize: "11px", color: "#5f6368", display: "flex", flexDirection: "column", gap: "4px" }}>
-                                              {task.deadline && <div>🕒 {task.deadline}</div>}
-                                              {task.source && <div style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>👤 {task.source}</div>}
+
+                                            {/* Sender Name */}
+                                            <div style={{ fontSize: "11px", color: "#5f6368", marginBottom: "6px", fontWeight: "500" }}>
+                                                From: <span style={{ color: "#202124", fontWeight: "600" }}>{task.senderName}</span>
                                             </div>
-                                            <div style={{ marginTop: "12px", fontSize: "11px", color: "#1a73e8", fontWeight: "500", textAlign: "right" }}>Open Original Email ↗</div>
+
+                                            {/* Task Title */}
+                                            <div style={{ fontSize: "14px", fontWeight: "700", lineHeight: "1.3", marginBottom: "6px", paddingRight: "20px", color: "#202124" }}>
+                                                {task.title}
+                                            </div>
+
+                                           {/* Action Item (What to do) */}
+<div style={{ fontSize: "12px", color: "#5f6368", marginBottom: "14px", lineHeight: "1.4", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+    {task.actionItem}
+</div>
+
+{/* 🔥 NAYA: Added Date Indicator */}
+<div style={{ fontSize: "10px", color: "#a1a5ab", marginBottom: "8px", fontWeight: "500" }}>
+    Added on: {new Date(task.createdAt || Date.now()).toLocaleDateString()}
+</div>
+
+                                            {/* Deadline & Open Link */}
+                                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid #f1f3f4", paddingTop: "10px" }}>
+                                                <div style={{ fontSize: "11px", fontWeight: "600", color: task.deadline !== "No Deadline" ? "#d93025" : "#80868b", display: "flex", alignItems: "center", gap: "4px" }}>
+                                                    🕒 {task.deadline}
+                                                </div>
+                                                <div style={{ fontSize: "11px", color: "#1a73e8", fontWeight: "600" }}>
+                                                    Open Email ↗
+                                                </div>
+                                            </div>
                                           </div>
                                         )}
                                       </Draggable>
