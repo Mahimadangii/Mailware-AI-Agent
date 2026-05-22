@@ -23,14 +23,22 @@ async function fetchRecentEmails(accessToken) {
     } catch (error) { throw error; }
 }
 
-async function fetchInboxList(accessToken, maxResults = 20) {
+// 🔥 UPDATE: Added pageToken support
+async function fetchInboxList(accessToken, maxResults = 20, pageToken = null) {
     try {
         const oauth2Client = new google.auth.OAuth2();
         oauth2Client.setCredentials({ access_token: accessToken });
         const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
-        const response = await gmail.users.messages.list({ userId: 'me', q: 'in:inbox', maxResults: maxResults });
+        
+        const requestParams = { userId: 'me', q: 'in:inbox', maxResults: maxResults };
+        if (pageToken) requestParams.pageToken = pageToken; // 🔥 Send token if exists
+
+        const response = await gmail.users.messages.list(requestParams);
         const messages = response.data.messages;
-        if (!messages || messages.length === 0) return [];
+        const nextPageToken = response.data.nextPageToken || null; // 🔥 Save next page token
+
+        if (!messages || messages.length === 0) return { emails: [], nextPageToken: null };
+        
         const inboxEmails = [];
         for (let msg of messages) {
             const mailData = await gmail.users.messages.get({ userId: 'me', id: msg.id, format: 'metadata', metadataHeaders: ['Subject', 'From', 'Date'] });
@@ -43,19 +51,26 @@ async function fetchInboxList(accessToken, maxResults = 20) {
             const isUnread = mailData.data.labelIds.includes('UNREAD');
             inboxEmails.push({ id: msg.id, from, subject, snippet, date, isUnread });
         }
-        return inboxEmails;
+        return { emails: inboxEmails, nextPageToken }; // 🔥 Returning token along with emails
     } catch (error) { throw error; }
 }
 
-// 🔥 NAYA FUNCTION: Sent Mails Fetch Karne ke liye
-async function fetchSentEmails(accessToken, maxResults = 20) {
+// 🔥 UPDATE: Added pageToken support for Sent mails too
+async function fetchSentEmails(accessToken, maxResults = 20, pageToken = null) {
     try {
         const oauth2Client = new google.auth.OAuth2();
         oauth2Client.setCredentials({ access_token: accessToken });
         const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
-        const response = await gmail.users.messages.list({ userId: 'me', q: 'in:sent', maxResults: maxResults });
+        
+        const requestParams = { userId: 'me', q: 'in:sent', maxResults: maxResults };
+        if (pageToken) requestParams.pageToken = pageToken;
+
+        const response = await gmail.users.messages.list(requestParams);
         const messages = response.data.messages;
-        if (!messages || messages.length === 0) return [];
+        const nextPageToken = response.data.nextPageToken || null;
+
+        if (!messages || messages.length === 0) return { emails: [], nextPageToken: null };
+        
         const sentEmails = [];
         for (let msg of messages) {
             const mailData = await gmail.users.messages.get({ userId: 'me', id: msg.id, format: 'metadata', metadataHeaders: ['Subject', 'To', 'Date'] });
@@ -67,7 +82,7 @@ async function fetchSentEmails(accessToken, maxResults = 20) {
             const snippet = mailData.data.snippet;
             sentEmails.push({ id: msg.id, to, subject, snippet, date, isUnread: false });
         }
-        return sentEmails;
+        return { emails: sentEmails, nextPageToken };
     } catch (error) { throw error; }
 }
 

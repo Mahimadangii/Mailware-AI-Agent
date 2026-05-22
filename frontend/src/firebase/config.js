@@ -19,6 +19,26 @@ googleProvider.setCustomParameters({ prompt: "select_account" });
 googleProvider.addScope('https://www.googleapis.com/auth/gmail.modify'); 
 googleProvider.addScope('https://www.googleapis.com/auth/gmail.send');
 
+// 🔥 CORRECTED: Pagination supported Inbox Fetch
+export async function fetchInboxData(pageToken = null) {
+    const token = localStorage.getItem("gmailToken");
+    const response = await fetch('http://localhost:5000/api/auth/inbox', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token, pageToken })
+    });
+    // Return full response {emails, nextPageToken}
+    return await response.json(); 
+}
+
+// 🔥 CORRECTED: Pagination supported Sent Fetch
+export async function fetchSentData(pageToken = null) {
+    const token = localStorage.getItem("gmailToken");
+    const response = await fetch('http://localhost:5000/api/auth/sent', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token, pageToken })
+    });
+    // Return full response {emails, nextPageToken}
+    return await response.json(); 
+}
+
 export async function signInWithGoogle() {
   try {
     const result = await signInWithPopup(auth, googleProvider);
@@ -50,25 +70,6 @@ export async function syncEmails(userEmail) {
   });
   const data = await response.json();
   return data.tasks || []; 
-}
-
-export async function fetchInboxData() {
-    const token = localStorage.getItem("gmailToken");
-    const response = await fetch('http://localhost:5000/api/auth/inbox', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: token })
-    });
-    const data = await response.json();
-    return data.emails || []; 
-}
-
-// 🔥 NAYA: Sent Data fetch
-export async function fetchSentData() {
-    const token = localStorage.getItem("gmailToken");
-    const response = await fetch('http://localhost:5000/api/auth/sent', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: token })
-    });
-    const data = await response.json();
-    return data.emails || []; 
 }
 
 export async function fetchFullEmail(messageId) {

@@ -20,9 +20,16 @@ export function Dashboard({ user }) {
   const [boardData, setBoardData] = useState(initialData);
   
   const [activeFolder, setActiveFolder] = useState("inbox"); 
+  
+  // 🔥 UPDATED STATES: Arrays ke sath Tokens aur Loading states
   const [inboxEmails, setInboxEmails] = useState([]);
+  const [inboxNextPage, setInboxNextPage] = useState(null);
+  
   const [sentEmails, setSentEmails] = useState([]);
+  const [sentNextPage, setSentNextPage] = useState(null);
+  
   const [loadingMails, setLoadingMails] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false); // Load more dabane par indicator
   
   const [selectedEmail, setSelectedEmail] = useState(null);
   const [fullEmailBody, setFullEmailBody] = useState(""); 
@@ -43,11 +50,31 @@ export function Dashboard({ user }) {
   const handleRefreshMails = async () => {
     setLoadingMails(true);
     try {
-      const [inbox, sent] = await Promise.all([fetchInboxData(), fetchSentData()]);
-      setInboxEmails(inbox);
-      setSentEmails(sent);
+      const [inboxRes, sentRes] = await Promise.all([fetchInboxData(null), fetchSentData(null)]);
+      setInboxEmails(inboxRes.emails || []);
+      setInboxNextPage(inboxRes.nextPageToken || null);
+      
+      setSentEmails(sentRes.emails || []);
+      setSentNextPage(sentRes.nextPageToken || null);
     } catch (error) { console.error("Refresh error", error); } 
     finally { setLoadingMails(false); }
+  };
+
+  // 🔥 NAYA FUNCTION: Naye 20 mails append karne ke liye
+  const handleLoadMore = async () => {
+      setLoadingMore(true);
+      try {
+          if (activeFolder === "inbox" && inboxNextPage) {
+              const res = await fetchInboxData(inboxNextPage);
+              setInboxEmails(prev => [...prev, ...(res.emails || [])]);
+              setInboxNextPage(res.nextPageToken || null);
+          } else if (activeFolder === "sent" && sentNextPage) {
+              const res = await fetchSentData(sentNextPage);
+              setSentEmails(prev => [...prev, ...(res.emails || [])]);
+              setSentNextPage(res.nextPageToken || null);
+          }
+      } catch (error) { console.error("Load more failed", error); }
+      finally { setLoadingMore(false); }
   };
 
   useEffect(() => {
@@ -67,14 +94,7 @@ export function Dashboard({ user }) {
           const newTaskIds = [];
           parsedTasks.forEach((task, index) => {
             const taskId = task.id || `ai-task-${index}`;
-            newTasksObj[taskId] = { 
-                id: taskId, 
-                originalMessageId: task.id, // 🔥 AI se jo email id aayi hai use save kiya
-                title: task.title, 
-                deadline: task.deadline, 
-                priority: task.priority, 
-                source: task.source || task.sourceEmail 
-            };
+            newTasksObj[taskId] = { id: taskId, originalMessageId: task.id, title: task.title, deadline: task.deadline, priority: task.priority, source: task.source || task.sourceEmail };
             newTaskIds.push(taskId); 
           });
           const freshBoardState = { ...initialData, tasks: newTasksObj, columns: { ...initialData.columns, todo: { ...initialData.columns.todo, taskIds: newTaskIds } } };
@@ -116,14 +136,7 @@ export function Dashboard({ user }) {
       fetchedTasks.forEach((task, index) => {
         const taskId = task.id || `ai-task-${Date.now()}-${index}`;
         if (!updatedTasks[taskId]) {
-          updatedTasks[taskId] = { 
-              id: taskId, 
-              originalMessageId: task.id, // 🔥 Store real email ID
-              title: task.title, 
-              deadline: task.deadline, 
-              priority: task.priority, 
-              source: task.source || task.sourceEmail 
-          };
+          updatedTasks[taskId] = { id: taskId, originalMessageId: task.id, title: task.title, deadline: task.deadline, priority: task.priority, source: task.source || task.sourceEmail };
           newTodoIds.unshift(taskId); 
           newTasksAdded++;
         }
@@ -134,7 +147,7 @@ export function Dashboard({ user }) {
         localStorage.setItem("mailwareBoardData", JSON.stringify(newBoardState));
         alert(`✅ ${newTasksAdded} Naye tasks load ho gaye!`);
       } else {
-        alert("ℹ️ Koi naya task nahi mila. (Ya toh inbox khali hai ya koi actionable task nahi mila)");
+        alert("ℹ️ Koi naya task nahi mila.");
       }
     } catch (error) { alert("Sync failed."); } 
     finally { setIsSyncing(false); }
@@ -194,7 +207,6 @@ export function Dashboard({ user }) {
           await replyToEmailAPI(selectedEmail.id, replyText);
           setReplyText("");
           alert("✅ Reply Sent Successfully!");
-          handleRefreshMails(); 
       } catch (error) { alert("Failed to send reply"); }
       setIsSendingReply(false);
   };
@@ -212,9 +224,7 @@ export function Dashboard({ user }) {
     setIsActionLoading(false);
   };
 
-  // 🔥 NAYA FUNCTION: Task par click karne par Pura Email kholne ke liye
   const handleTaskClick = (task) => {
-    // Fake email object banaya jisse backend fetch kar sake
     setSelectedEmail({
         id: task.originalMessageId || task.id, 
         subject: `Task Source: ${task.title}`,
@@ -230,6 +240,7 @@ export function Dashboard({ user }) {
   const getPriorityTextColor = (p) => p?.toLowerCase() === 'high' ? '#c5221f' : p?.toLowerCase() === 'medium' ? '#b08800' : '#137333';
 
   const currentListToDisplay = activeFolder === "inbox" ? inboxEmails : sentEmails;
+  const currentNextPageToken = activeFolder === "inbox" ? inboxNextPage : sentNextPage;
 
   return (
     <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: "#f8f9fa", fontFamily: "'Google Sans', sans-serif" }}>
@@ -285,36 +296,42 @@ export function Dashboard({ user }) {
                 ) : currentListToDisplay.length === 0 ? (
                     <div style={{ padding: "40px 20px", textAlign: "center", color: "#5f6368", fontSize: "14px" }}>No emails here.</div>
                 ) : (
-                    currentListToDisplay.map((email, i) => (
-                        <div key={i} onClick={() => setSelectedEmail(email)}
-                            style={{ 
-                                padding: "16px 20px", borderBottom: "1px solid #f1f3f4", cursor: "pointer",
-                                background: selectedEmail?.id === email.id ? "#e8f0fe" : (email.isUnread ? "#fff" : "#fafafa"),
-                                borderLeft: selectedEmail?.id === email.id ? "4px solid #1a73e8" : "4px solid transparent",
-                                transition: "background 0.2s",
-                                display: "flex", gap: "10px", alignItems: "flex-start" 
-                            }}>
-                            
-                            <div style={{ 
-                                width: "8px", height: "8px", borderRadius: "50%", 
-                                background: email.isUnread ? "#1a73e8" : "transparent", 
-                                marginTop: "6px", flexShrink: 0 
-                            }}></div>
-
-                            <div style={{ flexGrow: 1, overflow: "hidden" }}>
-                                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
-                                    <span style={{ fontWeight: email.isUnread ? "700" : "500", color: email.isUnread ? "#202124" : "#5f6368", fontSize: "14px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "180px" }}>
-                                        {activeFolder === "inbox" ? email.from : `To: ${email.to}`}
-                                    </span>
-                                    <span style={{ fontSize: "11px", color: email.isUnread ? "#1a73e8" : "#80868b", fontWeight: email.isUnread ? "700" : "500", flexShrink: 0 }}>{email.date.split(' ')[1]} {email.date.split(' ')[2]}</span>
-                                </div>
-                                <div style={{ fontWeight: email.isUnread ? "700" : "500", color: email.isUnread ? "#202124" : "#5f6368", fontSize: "13px", marginBottom: "4px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{email.subject}</div>
-                                <div style={{ color: "#616161", fontSize: "12.5px", lineHeight: "1.5", marginTop: "6px", wordWrap: "break-word" }}>
-                                    {email.snippet}
+                    <>
+                        {currentListToDisplay.map((email, i) => (
+                            <div key={i} onClick={() => setSelectedEmail(email)}
+                                style={{ 
+                                    padding: "16px 20px", borderBottom: "1px solid #f1f3f4", cursor: "pointer",
+                                    background: selectedEmail?.id === email.id ? "#e8f0fe" : (email.isUnread ? "#fff" : "#fafafa"),
+                                    borderLeft: selectedEmail?.id === email.id ? "4px solid #1a73e8" : "4px solid transparent",
+                                    transition: "background 0.2s", display: "flex", gap: "10px", alignItems: "flex-start" 
+                                }}>
+                                <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: email.isUnread ? "#1a73e8" : "transparent", marginTop: "6px", flexShrink: 0 }}></div>
+                                <div style={{ flexGrow: 1, overflow: "hidden" }}>
+                                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
+                                        <span style={{ fontWeight: email.isUnread ? "700" : "500", color: email.isUnread ? "#202124" : "#5f6368", fontSize: "14px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "180px" }}>
+                                            {activeFolder === "inbox" ? email.from : `To: ${email.to}`}
+                                        </span>
+                                        <span style={{ fontSize: "11px", color: email.isUnread ? "#1a73e8" : "#80868b", fontWeight: email.isUnread ? "700" : "500", flexShrink: 0 }}>{email.date.split(' ')[1]} {email.date.split(' ')[2]}</span>
+                                    </div>
+                                    <div style={{ fontWeight: email.isUnread ? "700" : "500", color: email.isUnread ? "#202124" : "#5f6368", fontSize: "13px", marginBottom: "4px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{email.subject}</div>
+                                    <div style={{ color: "#616161", fontSize: "12.5px", lineHeight: "1.5", marginTop: "6px", wordWrap: "break-word" }}>{email.snippet}</div>
                                 </div>
                             </div>
-                        </div>
-                    ))
+                        ))}
+                        
+                        {/* 🔥 NAYA: LOAD MORE BUTTON */}
+                        {currentNextPageToken && (
+                            <div style={{ padding: "16px", textAlign: "center" }}>
+                                <button 
+                                    onClick={handleLoadMore} 
+                                    disabled={loadingMore}
+                                    style={{ padding: "8px 24px", background: "#f1f3f4", color: "#1a73e8", border: "1px solid #dadce0", borderRadius: "20px", cursor: loadingMore ? "wait" : "pointer", fontWeight: "600", fontSize: "13px", transition: "all 0.2s" }}
+                                >
+                                    {loadingMore ? "Loading..." : "Load More Emails 👇"}
+                                </button>
+                            </div>
+                        )}
+                    </>
                 )}
             </div>
         </div>
@@ -350,7 +367,7 @@ export function Dashboard({ user }) {
             ) : selectedEmail ? (
                 <div style={{ padding: "40px", background: "#fff", height: "100%", overflowY: "auto", display: "flex", flexDirection: "column" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px", paddingBottom: "16px", borderBottom: "1px solid #e8eaed" }}>
-                        <button onClick={() => setSelectedEmail(null)} style={{ padding: "8px 16px", background: "#f1f3f4", color: "#3c4043", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "500", display: "flex", alignItems: "center", gap: "8px" }}><span>←</span> Back to Board</button>
+                        <button onClick={() => setSelectedEmail(null)} style={{ padding: "8px 16px", background: "#f1f3f4", color: "#3c4043", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "500", display: "flex", alignItems: "center", gap: "8px" }}><span>←</span> Back</button>
                         <div style={{ display: "flex", gap: "12px" }}>
                             <button onClick={handleArchive} disabled={isActionLoading} style={{ padding: "8px 16px", background: "#fff", color: "#3c4043", border: "1px solid #dadce0", borderRadius: "8px", cursor: isActionLoading ? "not-allowed" : "pointer", fontWeight: "500" }}>📥 Archive</button>
                             <button onClick={handleDelete} disabled={isActionLoading} style={{ padding: "8px 16px", background: "#fff", color: "#d93025", border: "1px solid #fce8e8", borderRadius: "8px", cursor: isActionLoading ? "not-allowed" : "pointer", fontWeight: "500" }}>🗑️ Trash</button>
@@ -409,7 +426,7 @@ export function Dashboard({ user }) {
                                       <Draggable key={task.id} draggableId={task.id} index={index}>
                                         {(provided, snapshot) => (
                                           <div ref={provided.innerRef} {...provided.draggableProps} {...provided.dragHandleProps} 
-                                          onClick={() => handleTaskClick(task)} // 🔥 YAHAN CLICK HANDLER LAGAYA HAI
+                                          onClick={() => handleTaskClick(task)}
                                           style={{ userSelect: "none", padding: "16px", margin: "0 0 12px 0", backgroundColor: "#fff", color: "#202124", borderRadius: "8px", boxShadow: snapshot.isDragging ? "0 8px 16px rgba(0,0,0,0.15)" : "0 1px 3px rgba(0,0,0,0.1)", border: "1px solid #dadce0", cursor: "pointer", ...provided.draggableProps.style }}>
                                             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
                                               <span style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", padding: "4px 8px", borderRadius: "4px", background: getPriorityColor(task.priority), color: getPriorityTextColor(task.priority) }}>{task.priority || "Low"}</span>
@@ -419,7 +436,6 @@ export function Dashboard({ user }) {
                                               {task.deadline && <div>🕒 {task.deadline}</div>}
                                               {task.source && <div style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>👤 {task.source}</div>}
                                             </div>
-                                            {/* 🔥 Visual indicator ki card clickable hai */}
                                             <div style={{ marginTop: "12px", fontSize: "11px", color: "#1a73e8", fontWeight: "500", textAlign: "right" }}>Open Original Email ↗</div>
                                           </div>
                                         )}
