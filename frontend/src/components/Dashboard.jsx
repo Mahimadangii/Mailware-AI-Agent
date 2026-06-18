@@ -7,11 +7,10 @@ import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 const initialData = {
   columns: {
     todo: { id: "todo", title: "To Do 📝", taskIds: [] },
-    "in-progress": { id: "in-progress", title: "In Progress ⏳", taskIds: [] },
     done: { id: "done", title: "Done ✅", taskIds: [] },
   },
   tasks: {},
-  columnOrder: ["todo", "in-progress", "done"],
+  columnOrder: ["todo", "done"], 
 };
 
 export function Dashboard({ user }) {
@@ -405,24 +404,40 @@ export function Dashboard({ user }) {
                         </div>
                     </div>
                     
-                    <h1 style={{ fontSize: "24px", color: "#202124", marginBottom: "8px" }}>{selectedEmail.subject}</h1>
-                    <div style={{ color: "#5f6368", fontSize: "14px", marginBottom: "24px" }}>
+                    <h1 style={{ fontSize: "18px", color: "#202124", marginBottom: "8px" }}>{selectedEmail.subject}</h1>
+                    <div style={{ color: "#5f6368", fontSize: "14px", marginBottom: "14px" }}>
                         {activeFolder === "inbox" ? ( <>From: <strong style={{color: "#202124"}}>{selectedEmail.from}</strong></> ) : ( <>To: <strong style={{color: "#202124"}}>{selectedEmail.to}</strong></> )} • {selectedEmail.date}
                     </div>
 
                     <div style={{ flexGrow: 1, background: "#fafafa", padding: "24px", borderRadius: "12px", border: "1px solid #f1f3f4", overflowX: "auto", marginBottom: "24px" }}>
                         {loadingBody ? <div style={{ color: "#5f6368", textAlign: "center", marginTop: "20px" }}>Fetching email contents... ⏳</div> : <div style={{ color: "#202124", fontSize: "14px", lineHeight: "1.6" }} dangerouslySetInnerHTML={{ __html: fullEmailBody }} />}
                     </div>
-
-                    <div style={{ background: "#fff", border: "1px solid #dadce0", borderRadius: "12px", padding: "16px", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
-                        <textarea value={replyText} onChange={(e) => setReplyText(e.target.value)} placeholder="Type your reply here..." style={{ width: "100%", minHeight: "100px", border: "none", outline: "none", resize: "none", fontSize: "14px", color: "#202124", fontFamily: "inherit" }} />
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "12px", paddingTop: "12px", borderTop: "1px solid #f1f3f4" }}>
-                            <span style={{ fontSize: "12px", color: "#80868b" }}>Powered by Mailware APIs</span>
-                            <button onClick={handleSendReply} disabled={isSendingReply || !replyText.trim()} style={{ padding: "10px 24px", background: (isSendingReply || !replyText.trim()) ? "#e8eaed" : "#1a73e8", color: (isSendingReply || !replyText.trim()) ? "#9aa0a6" : "#fff", border: "none", borderRadius: "20px", cursor: (isSendingReply || !replyText.trim()) ? "not-allowed" : "pointer", fontWeight: "600", fontSize: "13px", transition: "background 0.2s" }}>
-                                {isSendingReply ? "Sending..." : "Send Reply 🚀"}
-                            </button>
-                        </div>
-                    </div>
+{/* Compact Reply Box Container */}
+<div style={{ background: "#fff", border: "1px solid #dadce0", borderRadius: "12px", padding: "12px 16px", boxShadow: "0 -2px 10px rgba(0,0,0,0.05)", marginTop: "auto" }}>
+    <textarea 
+        value={replyText} 
+        onChange={(e) => setReplyText(e.target.value)} 
+        placeholder="Type your reply here..." 
+        style={{ 
+            width: "100%", 
+            minHeight: "10px", /* 🔥 NAYA: Height kam kar di */
+            maxHeight: "0px", 
+            border: "none", 
+            outline: "none", 
+            resize: "vertical", /* 🔥 NAYA: User zaroorat padne par isko bada kar sakta hai */
+            fontSize: "14px", 
+            color: "#202124", 
+            fontFamily: "inherit" 
+        }} 
+    />
+    
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "8px", paddingTop: "8px", borderTop: "1px solid #f1f3f4" }}>
+        <span style={{ fontSize: "12px", color: "#80868b" }}>Powered by Mailware APIs</span>
+        <button onClick={handleSendReply} disabled={isSendingReply || !replyText.trim()} style={{ padding: "8px 20px", background: (isSendingReply || !replyText.trim()) ? "#e8eaed" : "#1a73e8", color: (isSendingReply || !replyText.trim()) ? "#9aa0a6" : "#fff", border: "none", borderRadius: "20px", cursor: (isSendingReply || !replyText.trim()) ? "not-allowed" : "pointer", fontWeight: "600", fontSize: "13px", transition: "background 0.2s" }}>
+            {isSendingReply ? "Sending..." : "Send Reply 🚀"}
+        </button>
+    </div>
+</div>
                 </div>
             ) : (
                 <>

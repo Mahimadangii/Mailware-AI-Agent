@@ -12,7 +12,10 @@ router.post('/save-token', async (req, res) => {
         if (emails.length === 0) return res.status(200).json({ message: "No unread emails.", tasks: [] });
         const tasks = await extractTasksFromEmails(emails);
         res.status(200).json({ message: "Emails processed successfully!", tasks: tasks });
-    } catch (error) { res.status(500).json({ error: "Something went wrong" }); }
+    } catch (error) {
+        console.error("❌ Save Token Crash:", error); // Ye line bohot zaroori hai
+        res.status(500).send("Internal Server Error");
+    }
 });
 
 router.post('/inbox', async (req, res) => {

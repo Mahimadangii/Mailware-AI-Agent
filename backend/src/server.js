@@ -16,6 +16,12 @@ app.use(cors({
 // Express ko JSON data samajhne ke liye power dena
 app.use(express.json());
 
+// 🔥 NAYA: Har incoming request aur error ko track karne ke liye Spy Middleware
+app.use((req, res, next) => {
+    console.log(`➡️ [${req.method}] Hit hua: ${req.url}`);
+    next();
+});
+
 // ─── ROUTES ──────────────────────────────────────────────────────────────────
 const authRoutes = require('./routes/authRoutes');
 app.use('/api/auth', authRoutes); // Ab sab requests /api/auth se shuru hongi

@@ -16,6 +16,9 @@ const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: "select_account" });
+
+// 🔥 CORRECTED: Un-commented and added required scopes
+googleProvider.addScope('https://www.googleapis.com/auth/gmail.readonly');
 googleProvider.addScope('https://www.googleapis.com/auth/gmail.modify'); 
 googleProvider.addScope('https://www.googleapis.com/auth/gmail.send');
 
