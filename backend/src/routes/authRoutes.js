@@ -19,13 +19,12 @@ router.post('/save-token', async (req, res) => {
 });
 
 router.post('/inbox', async (req, res) => {
-    // 🔥 UPDATE: pageToken extraction from body
     const { token, pageToken } = req.body; 
     if (!token) return res.status(400).json({ error: "Token is missing!" });
     try {
         let result = await fetchInboxList(token, 20, pageToken); 
         
-        // Summarize naye chunk of emails
+        // Summarize new chunk of emails
         let summarizedEmails = await summarizeEmailSnippets(result.emails);
         
         // Return emails and nextPageToken
@@ -42,7 +41,7 @@ router.post('/sent', async (req, res) => {
     } catch (error) { res.status(500).json({ error: "Sent mails load error" }); }
 });
 
-// ... baaki endpoints same rahenge (email-details, trash, archive, reply, send)
+
 router.post('/email-details', async (req, res) => {
     const { token, messageId } = req.body;
     if (!token || !messageId) return res.status(400).json({ error: "Missing data!" });
